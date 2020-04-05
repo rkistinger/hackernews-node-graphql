@@ -1,0 +1,24 @@
+// npx prisma introspect => generates models by reading the database schema
+// npx prisma generate => reads prisma schema and generates the prisma client used in the app
+
+// Repeatable steps in a Prisma application:
+// 1) Manually adjust the database schema using SQL
+// 2) Introspect the database to update the prisma schema - npx prisma introspect
+// 3) Generate a new prisma client node_module - npx prisma generate
+// 4) Use client to interact with database - import { PrismaClient } from "@prisma/client"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Links {
+  createdAt   DateTime @default(now())
+  description String
+  id          Int      @default(autoincrement()) @id
+  url         String
+}
