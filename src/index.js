@@ -1,61 +1,72 @@
 const { GraphQLServer } = require('graphql-yoga')
+const { PrismaClient } = require('@prisma/client')
 
-const links = [
-  {
-    id: 'link-0',
-    url: 'www.howtographql.com',
-    description: 'Fullstack tutorial for GraphQL',
-  },
-]
+const prisma = new PrismaClient()
 
 /*
-  2) Define the implementation (data fetching) of our schema (1:1 root field to resolver - names must match)
+  Define the implementation (data fetching) of our schema (1:1 root field to resolver - names must match)
 
   Every GraphQL resolver receives four arguments:
-  - parent = result of the previous resolver execution level / nesting level. For lists 'parent' is each element in the list.
-  - args = arguments for the operation defined in the schema
+  - parent / root = result of the previous resolver execution level / nesting level. For lists 'parent' is each element in the list.
+  - args = arguments of the resolver’s field defined in the schema
+  - context = custom object that each resolver can read from / write to for communication
+  - info = AST representation of the query or mutation (rarely used)
 */
 const resolvers = {
   Query: {
     info: () => `This is the API of a Hackernews Clone`,
-    feed: () => links,
-    link: (parent, args) => links.find((link) => link.id === args.id),
+    feed: (parent, args, context, info) => {
+      return context.prisma.links.findMany()
+    },
+    link: (parent, args, context) => {
+      return context.prisma.links.findOne({
+        where: {
+          id: parseInt(args.id),
+        },
+      })
+    },
   },
   Mutation: {
-    post: (parent, args) => {
-      const link = {
-        id: `link-${links.length}`,
-        description: args.description,
-        url: args.url,
-      }
-      links.push(link)
-      return link
+    post: (parent, args, context) => {
+      return context.prisma.links.create({
+        data: {
+          description: args.description,
+          url: args.url,
+        },
+      })
     },
-    updateLink: (parent, args) => {
-      const updateIndex = links.findIndex((link) => link.id === args.id)
-      const updatedLink = {
-        id: `link-${updateIndex}`,
-        url: args.url || links[updateIndex].url,
-        description: args.description || links[updateIndex].description,
-      }
-      links.splice(updateIndex, 1, updatedLink)
-      return updatedLink
+    updateLink: (parent, args, context) => {
+      return context.prisma.links.update({
+        where: {
+          id: parseInt(args.id),
+        },
+        data: {
+          url: args.url,
+          description: args.description,
+        },
+      })
     },
-    deleteLink: (parent, args) => {
-      const deleteIndex = links.findIndex((link) => link.id === args.id)
-      const deletedLink = links.splice(deleteIndex, 1)
-      return deletedLink
+    deleteLink: (parent, args, context) => {
+      return context.prisma.links.delete({
+        where: {
+          id: parseInt(args.id),
+        },
+      })
     },
   },
 }
 
-// 3) Create server with schema and resolvers
+// Create server with schema and resolvers
 const server = new GraphQLServer({
   typeDefs: './src/schema.graphql',
   resolvers,
+  context: {
+    // All resolvers will have access to context.prisma
+    prisma,
+  },
 })
 
-// 4) Start server
+// Start server
 server.start((options) => {
   console.log(`Server is running on http://localhost:${options.port}`)
 })

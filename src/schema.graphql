@@ -1,4 +1,4 @@
-# 1) Define our GraphQL schema written in the GQL schema definition language (SDL).
+# Define our GraphQL schema written in the GQL schema definition language (SDL).
 
 # Every GQL schema has three root types* - Query, Mutation, & Subscription
 # made up of root fields that define the available API operations.
