@@ -1,10 +1,11 @@
 // Repeatable steps in a Prisma application:
 // 1) Adjust database schema => run SQL scripts
 // 2) Introspect database to update models in prisma schema => npx prisma introspect
-// 3) Generate prisma client node_module from reading prisma schema => npx prisma generate
+// *** Eventually prisma migrate will be able to replace steps 1 & 2 https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-migrate
+// 3) (Re-)generate prisma client node_module from reading prisma schema => npx prisma generate
 // 4) Interact with database via prisma client => const { PrismaClient } = require('@prisma/client')
 
-const { GraphQLServer } = require('graphql-yoga')
+const { GraphQLServer, PubSub } = require('graphql-yoga')
 const { PrismaClient } = require('@prisma/client')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
@@ -12,6 +13,14 @@ const jwt = require('jsonwebtoken')
 const { APP_SECRET, getUserId } = require('./utils')
 
 const prisma = new PrismaClient()
+
+// This is needed to implement subscriptions
+const pubsub = new PubSub()
+
+const pubsubEvents = {
+  newLink: 'newLink',
+  newVote: 'newVote',
+}
 
 /*
   Define the implementation (data fetching) of our schema (1:1 root field to resolver - names must match)
@@ -37,10 +46,10 @@ const resolvers = {
     },
   },
   Mutation: {
-    createLink: (parent, args, context) => {
+    createLink: async (parent, args, context) => {
       const userId = getUserId(context)
 
-      return prisma.link.create({
+      const link = await prisma.link.create({
         data: {
           description: args.description,
           url: args.url,
@@ -51,6 +60,12 @@ const resolvers = {
           },
         },
       })
+
+      context.pubsub.publish(pubsubEvents.newLink, {
+        newLink: link,
+      })
+
+      return link
     },
     updateLink: (parent, args, context) => {
       return context.prisma.link.update({
@@ -119,6 +134,56 @@ const resolvers = {
         user,
       }
     },
+    vote: async (parent, args, context, info) => {
+      const userId = getUserId(context)
+
+      const votes = await prisma.vote.findMany({
+        where: {
+          userId,
+          linkId: parseInt(args.linkId),
+        },
+      })
+      if (votes.length) {
+        throw new Error(`Already voted for link: ${args.linkId}`)
+      }
+
+      const vote = await prisma.vote.create({
+        data: {
+          Link: {
+            connect: {
+              id: parseInt(args.linkId),
+            },
+          },
+          User: {
+            connect: {
+              id: userId,
+            },
+          },
+        },
+      })
+
+      pubsub.publish(pubsubEvents.newVote, {
+        newVote: vote,
+      })
+
+      return vote
+    },
+  },
+  // Subscription resolvers are wrapped in an object with fields
+  //   - subscribe: the resolver which maps an event and returns an AsyncIterator
+  //   - resolve (optional): manipulate the return payload
+  // https://github.com/apollographql/graphql-subscriptions
+  Subscription: {
+    newLink: {
+      subscribe: (parent, args, context, info) => {
+        return context.pubsub.asyncIterator(pubsubEvents.newLink)
+      },
+    },
+    newVote: {
+      subscribe: (parent, args, context, info) => {
+        return context.pubsub.asyncIterator(pubsubEvents.newVote)
+      },
+    },
   },
   // Resolvers for scalar values can be omitted (Link.id, Link.url, User.name, User.email).
   // Object fields need to be explicitly implemented because our GraphQL server can not infer where to get that data from.
@@ -132,6 +197,15 @@ const resolvers = {
         })
         .User()
     },
+    votes: (parent, args, context, info) => {
+      return prisma.link
+        .findOne({
+          where: {
+            id: parent.id,
+          },
+        })
+        .Vote()
+    },
   },
   User: {
     links: (parent, args, context, info) => {
@@ -142,6 +216,26 @@ const resolvers = {
           },
         })
         .Link()
+    },
+  },
+  Vote: {
+    link: (parent, args, context, info) => {
+      return prisma.vote
+        .findOne({
+          where: {
+            id: parent.id,
+          },
+        })
+        .Link()
+    },
+    user: (parent, args, context, info) => {
+      return prisma.vote
+        .findOne({
+          where: {
+            id: parent.id,
+          },
+        })
+        .User()
     },
   },
 }
@@ -155,6 +249,7 @@ const server = new GraphQLServer({
     return {
       ...request,
       prisma,
+      pubsub,
     }
   },
 })

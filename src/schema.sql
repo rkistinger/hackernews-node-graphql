@@ -16,3 +16,11 @@ CREATE TABLE "public"."Link" (
   "postedBy" INTEGER,
   FOREIGN KEY ("postedBy") REFERENCES "public"."User"(id)
 );
+
+CREATE TABLE "public"."Vote" (
+  id SERIAL PRIMARY KEY NOT NULL,
+  "userId" INTEGER NOT NULL,
+  "linkId" INTEGER NOT NULL,
+  FOREIGN KEY ("userId") REFERENCES "public"."User"(id),
+  FOREIGN KEY ("linkId") REFERENCES "public"."Link"(id)
+);
