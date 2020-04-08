@@ -34,8 +34,46 @@ const pubsubEvents = {
 const resolvers = {
   Query: {
     info: () => `This is the API of a Hackernews Clone`,
-    feed: (parent, args, context, info) => {
-      return context.prisma.link.findMany()
+    feed: async (parent, args, context, info) => {
+      const where = !args.filter
+        ? {}
+        : {
+            OR: [
+              {
+                description: {
+                  contains: args.filter,
+                },
+              },
+              {
+                url: {
+                  contains: args.filter,
+                },
+              },
+            ],
+          }
+
+      let orderBy
+      if (args.orderBy) {
+        const [orderByKey, orderByDirection] = args.orderBy.split('_')
+        orderBy = {
+          [orderByKey]: orderByDirection,
+        }
+      }
+
+      const [links, count] = await Promise.all([
+        prisma.link.findMany({
+          where,
+          skip: args.skip,
+          first: args.first,
+          orderBy,
+        }),
+        prisma.link.count(),
+      ])
+
+      return {
+        links,
+        count,
+      }
     },
     link: (parent, args, context) => {
       return context.prisma.link.findOne({
